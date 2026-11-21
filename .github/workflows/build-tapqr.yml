@@ -1,8 +1,5 @@
 name: Build TapQR APK
-on:
-  workflow_dispatch:
-  push:
-    branches: [main, master]
+on: [push, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -10,20 +7,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: AKS-Labs/CircleToSearch
-          ref: 6ff6e513da8767b2e776add5625d1b89ce091286
-          path: upstream
-      - run: cp -r app/src/. upstream/app/src/
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - working-directory: upstream
-        run: bash gradlew :app:assembleDebug --stacktrace
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - run: gradle :app:assembleDebug
+      - run: |
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$apk" > /tmp/tapqr-manifest.xml
+          test "$(grep -c '<service' /tmp/tapqr-manifest.xml)" -eq 1
+          grep -q 'AutoQrService' /tmp/tapqr-manifest.xml
+          cp "$apk" TapQR.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: TapQR-arm64
-          path: upstream/app/build/outputs/apk/debug/*arm64-v8a*.apk
-          if-no-files-found: error
+          name: TapQR
+          path: TapQR.apk
