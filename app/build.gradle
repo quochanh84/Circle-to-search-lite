@@ -4,6 +4,10 @@ plugins {
 }
 android {
     namespace 'com.akslabs.circletosearch'
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
     compileSdk 35
     defaultConfig {
         applicationId 'com.akslabs.circletosearch'
