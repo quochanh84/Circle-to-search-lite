@@ -24,7 +24,8 @@ class AutoQrService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val windows by lazy { getSystemService(WindowManager::class.java) }
-    private val marks = mutableListOf<View>()
+    private val marks = mutableMapOf<Hit, View>()
+    private var foreground: String? = null
     private var revision = 0L
     private var busy = false
     private var active = false
@@ -38,14 +39,26 @@ class AutoQrService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null || event.packageName == packageName) return
-        revision++
-        clearMarks()
+        val app = event.packageName?.toString()
+        if (app != foreground || event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            foreground = app
+            revision++
+            clearMarks()
+        }
+        handler.removeCallbacks(idleScan)
         schedule()
+    }
+
+    private val idleScan = Runnable { schedule() }
+
+    private fun refreshLater() {
+        handler.removeCallbacks(idleScan)
+        if (available()) handler.postDelayed(idleScan, if (marks.isEmpty()) 2000L else 1200L)
     }
 
     private fun schedule() {
         if (active && !busy && !handler.hasCallbacks(scan))
-            handler.postDelayed(scan, max(130L, lastShot + 650 - SystemClock.uptimeMillis()))
+            handler.postDelayed(scan, max(20L, lastShot + 525 - SystemClock.uptimeMillis()))
     }
 
     private fun available() = active && getSystemService(PowerManager::class.java).isInteractive &&
@@ -73,8 +86,13 @@ class AutoQrService : AccessibilityService() {
                     } catch (_: RuntimeException) { emptyList() } finally { buffer.close() }
                     handler.post {
                         busy = false
-                        if (version == revision && available()) hits.forEach { show(it) }
-                        else if (active) schedule()
+                        if (version == revision && available()) {
+                            for (old in marks.keys.toList()) {
+                                if (old !in hits) marks.remove(old)?.let { windows.removeViewImmediate(it) }
+                            }
+                            hits.filterNot { marks.containsKey(it) }.forEach { show(it) }
+                            refreshLater()
+                        } else if (active) schedule()
                     }
                 }
             }
@@ -97,7 +115,7 @@ class AutoQrService : AccessibilityService() {
             if (uri.scheme?.lowercase() !in setOf("http","https") || uri.host.isNullOrBlank() || p.size < 3) return@mapNotNull null
             val left = p.minOf { it.x }; val top = p.minOf { it.y }
             val right = p.maxOf { it.x }; val bottom = p.maxOf { it.y }
-            val pad = min(right-left,bottom-top) * .09f
+            val pad = min(right-left,bottom-top) * .26f
             Hit(Rect(max(0,(left-pad).toInt()),max(0,(top-pad).toInt()),min(w,(right+pad).toInt()),min(h,(bottom+pad).toInt())),url)
         }
     }
@@ -110,7 +128,7 @@ class AutoQrService : AccessibilityService() {
         marker.setOnClickListener {
             if (available()) {
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("QR", hit.url))
-                Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
+                if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
             }
         }
         val params = WindowManager.LayoutParams(area.width(), area.height(), WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -123,14 +141,14 @@ class AutoQrService : AccessibilityService() {
             y = area.top
         }
         windows.addView(marker, params)
-        marks.add(marker)
+        marks[hit] = marker
     }
 
     private fun clearMarks() {
-        marks.forEach { windows.removeViewImmediate(it) }
+        marks.values.forEach { windows.removeViewImmediate(it) }
         marks.clear()
     }
-    override fun onInterrupt() { revision++; handler.removeCallbacks(scan); clearMarks() }
+    override fun onInterrupt() { revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
     override fun onDestroy() {
         active = false
         onInterrupt()
