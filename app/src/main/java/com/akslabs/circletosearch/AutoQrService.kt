@@ -12,7 +12,7 @@ import android.os.*
 import android.view.*
 import android.view.accessibility.AccessibilityEvent
 import android.widget.FrameLayout
-import android.widget.Toast
+import android.widget.TextView
 import com.google.zxing.*
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.multi.GenericMultipleBarcodeReader
@@ -124,12 +124,15 @@ class AutoQrService : AccessibilityService() {
         val area = hit.area
         val marker = FrameLayout(this)
         marker.contentDescription = "Sao chép liên kết QR"
-        marker.background = GradientDrawable().apply { setColor(0); setStroke(2, 0xff00a687.toInt()) }
         marker.setOnClickListener {
             if (available()) {
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("QR", hit.url))
-                if (Build.VERSION.SDK_INT < 33) Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
+                showCopied()
             }
+        }
+        marker.setOnTouchListener { view, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) view.performClick()
+            true
         }
         val params = WindowManager.LayoutParams(area.width(), area.height(), WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -144,6 +147,31 @@ class AutoQrService : AccessibilityService() {
         marks[hit] = marker
     }
 
+    private var feedback: View? = null
+    private val dismissFeedback = Runnable {
+        feedback?.let { windows.removeViewImmediate(it) }
+        feedback = null
+    }
+
+    private fun showCopied() {
+        handler.removeCallbacks(dismissFeedback)
+        if (feedback == null) {
+            val density = resources.displayMetrics.density
+            val label = TextView(this).apply {
+                text = "Copied"
+                setTextColor(-1)
+                setPadding((14*density).toInt(), (6*density).toInt(), (14*density).toInt(), (6*density).toInt())
+                background = GradientDrawable().apply { setColor(0xe6323232.toInt()); cornerRadius = 14*density }
+            }
+            val params = WindowManager.LayoutParams(-2, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = (80*density).toInt() }
+            windows.addView(label, params)
+            feedback = label
+        }
+        handler.postDelayed(dismissFeedback, 350L)
+    }
+
     private fun clearMarks() {
         marks.values.forEach { windows.removeViewImmediate(it) }
         marks.clear()
@@ -151,6 +179,8 @@ class AutoQrService : AccessibilityService() {
     override fun onInterrupt() { revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
     override fun onDestroy() {
         active = false
+        handler.removeCallbacks(dismissFeedback)
+        dismissFeedback.run()
         onInterrupt()
         worker.shutdown()
         super.onDestroy()
