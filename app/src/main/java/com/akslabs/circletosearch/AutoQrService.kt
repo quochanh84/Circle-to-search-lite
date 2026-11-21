@@ -45,20 +45,27 @@ class AutoQrService : AccessibilityService() {
             revision++
             clearMarks()
         }
+        quickRefreshes = 3
         handler.removeCallbacks(idleScan)
         schedule()
     }
 
     private val idleScan = Runnable { schedule() }
 
+    private var quickRefreshes = 0
+
     private fun refreshLater() {
         handler.removeCallbacks(idleScan)
-        if (available()) handler.postDelayed(idleScan, if (marks.isEmpty()) 2000L else 1200L)
+        val delay = if (quickRefreshes > 0) {
+            quickRefreshes--
+            0L
+        } else if (marks.isEmpty()) 1400L else 900L
+        if (available()) handler.postDelayed(idleScan, delay)
     }
 
     private fun schedule() {
         if (active && !busy && !handler.hasCallbacks(scan))
-            handler.postDelayed(scan, max(20L, lastShot + 525 - SystemClock.uptimeMillis()))
+            handler.postDelayed(scan, max(0L, lastShot + 525 - SystemClock.uptimeMillis()))
     }
 
     private fun available() = active && getSystemService(PowerManager::class.java).isInteractive &&
@@ -82,7 +89,23 @@ class AutoQrService : AccessibilityService() {
                     val hits = try {
                         val wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
                         val copy = try { wrapped?.copy(Bitmap.Config.ARGB_8888, false) } finally { wrapped?.recycle() }
-                        try { copy?.let { decode(it) }.orEmpty() } finally { copy?.recycle() }
+                        try {
+                            copy?.let { frame ->
+                                if (frame.width >= 1000) {
+                                    val preview = Bitmap.createScaledBitmap(frame, frame.width / 2, frame.height / 2, true)
+                                    val early = try { decode(preview) } finally { preview.recycle() }
+                                    val sx = frame.width.toFloat() / (frame.width / 2)
+                                    val sy = frame.height.toFloat() / (frame.height / 2)
+                                    if (early.isNotEmpty()) handler.post {
+                                        if (version == revision && available() && marks.isEmpty()) early.forEach { hit ->
+                                            val r = hit.area
+                                            show(Hit(Rect((r.left*sx).toInt(), (r.top*sy).toInt(), (r.right*sx).toInt(), (r.bottom*sy).toInt()), hit.url))
+                                        }
+                                    }
+                                }
+                                decode(frame)
+                            }.orEmpty()
+                        } finally { copy?.recycle() }
                     } catch (_: RuntimeException) { emptyList() } finally { buffer.close() }
                     handler.post {
                         busy = false
@@ -126,7 +149,12 @@ class AutoQrService : AccessibilityService() {
         marker.contentDescription = "Sao chép liên kết QR"
         marker.setOnClickListener {
             if (available()) {
-                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("QR", hit.url))
+                val clip = ClipData.newPlainText("QR", hit.url).apply {
+                    description.extras = PersistableBundle().apply {
+                        putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                    }
+                }
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                 showCopied()
             }
         }
@@ -169,7 +197,7 @@ class AutoQrService : AccessibilityService() {
             windows.addView(label, params)
             feedback = label
         }
-        handler.postDelayed(dismissFeedback, 350L)
+        handler.postDelayed(dismissFeedback, 150L)
     }
 
     private fun clearMarks() {
