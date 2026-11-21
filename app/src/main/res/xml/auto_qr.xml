@@ -2,5 +2,5 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canTakeScreenshot="true"
-    android:notificationTimeout="120"
+    android:notificationTimeout="0"
     android:description="@string/auto_qr_description" />
