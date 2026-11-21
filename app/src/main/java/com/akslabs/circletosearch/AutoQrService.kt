@@ -175,10 +175,24 @@ class AutoQrService : AccessibilityService() {
         marks[hit] = marker
     }
 
-    private var feedback: View? = null
+    private var feedback: TextView? = null
     private val dismissFeedback = Runnable {
         feedback?.let { windows.removeViewImmediate(it) }
         feedback = null
+    }
+
+    private fun hideAfterDraw(label: TextView) {
+        label.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                label.viewTreeObserver.removeOnPreDrawListener(this)
+                if (feedback === label) {
+                    handler.removeCallbacks(dismissFeedback)
+                    handler.postDelayed(dismissFeedback, 600L)
+                }
+                return true
+            }
+        })
+        label.invalidate()
     }
 
     private fun showCopied() {
@@ -187,17 +201,23 @@ class AutoQrService : AccessibilityService() {
             val density = resources.displayMetrics.density
             val label = TextView(this).apply {
                 text = "Copied"
+                textSize = 18f
+                setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
                 setTextColor(-1)
                 setPadding((14*density).toInt(), (6*density).toInt(), (14*density).toInt(), (6*density).toInt())
                 background = GradientDrawable().apply { setColor(0xe6323232.toInt()); cornerRadius = 14*density }
             }
             val params = WindowManager.LayoutParams(-2, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = (80*density).toInt() }
+                PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = (64 * density).toInt()
+                windowAnimations = 0
+            }
             windows.addView(label, params)
             feedback = label
         }
-        handler.postDelayed(dismissFeedback, 150L)
+        feedback?.let(::hideAfterDraw)
     }
 
     private fun clearMarks() {
