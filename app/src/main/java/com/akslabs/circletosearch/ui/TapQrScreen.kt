@@ -42,7 +42,8 @@ fun TapQrScreen(bitmap: Bitmap?, close: () -> Unit) {
                         point.y * bitmap.height / size.height)
                 }
             })
-        val point = tap ?: return@key
+        val point = tap
+        if (point != null) {
         val results = codes
         val hit = first?.takeIf { it.bounds?.contains(point.x, point.y) == true } ?: results?.firstOrNull { it.bounds?.contains(point.x, point.y) == true }
         val payload = hit?.rawText
@@ -57,5 +58,6 @@ fun TapQrScreen(bitmap: Bitmap?, close: () -> Unit) {
                 }) { Text("Sao chép") }
             },
             dismissButton = { TextButton(onClick = { tap = null }) { Text("Quay lại") } })
+        }
     }
 }
