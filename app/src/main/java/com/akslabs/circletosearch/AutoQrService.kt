@@ -1,0 +1,140 @@
+package com.akslabs.circletosearch
+
+import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
+import android.os.*
+import android.view.*
+import android.view.accessibility.AccessibilityEvent
+import android.widget.FrameLayout
+import android.widget.Toast
+import com.google.zxing.*
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.multi.GenericMultipleBarcodeReader
+import java.util.concurrent.Executors
+import kotlin.math.*
+
+class AutoQrService : AccessibilityService() {
+    private data class Hit(val area: Rect, val url: String)
+    private val handler = Handler(Looper.getMainLooper())
+    private val worker = Executors.newSingleThreadExecutor()
+    private val windows by lazy { getSystemService(WindowManager::class.java) }
+    private val marks = mutableListOf<View>()
+    private var revision = 0L
+    private var busy = false
+    private var active = false
+    private var lastShot = 0L
+    private val scan = Runnable { capture() }
+
+    override fun onServiceConnected() {
+        active = true
+        schedule()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || event.packageName == packageName) return
+        revision++
+        clearMarks()
+        schedule()
+    }
+
+    private fun schedule() {
+        if (active && !busy && !handler.hasCallbacks(scan))
+            handler.postDelayed(scan, max(130L, lastShot + 650 - SystemClock.uptimeMillis()))
+    }
+
+    private fun available() = active && getSystemService(PowerManager::class.java).isInteractive &&
+        !getSystemService(KeyguardManager::class.java).isDeviceLocked
+
+    private fun capture() {
+        if (Build.VERSION.SDK_INT < 30 || !available() || busy) return
+        busy = true
+        val version = revision
+        lastShot = SystemClock.uptimeMillis()
+        takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+            override fun onFailure(errorCode: Int) {
+                busy = false
+                clearMarks()
+                if (version != revision || errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) schedule()
+            }
+            override fun onSuccess(result: ScreenshotResult) {
+                val buffer = result.hardwareBuffer
+                if (!active) { buffer.close(); return }
+                worker.execute {
+                    val hits = try {
+                        val wrapped = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                        val copy = try { wrapped?.copy(Bitmap.Config.ARGB_8888, false) } finally { wrapped?.recycle() }
+                        try { copy?.let { decode(it) }.orEmpty() } finally { copy?.recycle() }
+                    } catch (_: RuntimeException) { emptyList() } finally { buffer.close() }
+                    handler.post {
+                        busy = false
+                        if (version == revision && available()) hits.forEach { show(it) }
+                        else if (active) schedule()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun decode(image: Bitmap): List<Hit> {
+        val w = image.width
+        val h = image.height
+        val pixels = IntArray(w * h)
+        image.getPixels(pixels, 0, w, 0, 0, w, h)
+        val input = BinaryBitmap(HybridBinarizer(RGBLuminanceSource(w,h,pixels)))
+        val hints = mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE))
+        val results = try { GenericMultipleBarcodeReader(MultiFormatReader()).decodeMultiple(input, hints) }
+            catch (_: NotFoundException) { return emptyList() }
+        return results.mapNotNull { r ->
+            val url = r.text
+            val uri = android.net.Uri.parse(url)
+            val p = r.resultPoints
+            if (uri.scheme?.lowercase() !in setOf("http","https") || uri.host.isNullOrBlank() || p.size < 3) return@mapNotNull null
+            val left = p.minOf { it.x }; val top = p.minOf { it.y }
+            val right = p.maxOf { it.x }; val bottom = p.maxOf { it.y }
+            val pad = min(right-left,bottom-top) * .09f
+            Hit(Rect(max(0,(left-pad).toInt()),max(0,(top-pad).toInt()),min(w,(right+pad).toInt()),min(h,(bottom+pad).toInt())),url)
+        }
+    }
+
+    private fun show(hit: Hit) {
+        val area = hit.area
+        val marker = FrameLayout(this)
+        marker.contentDescription = "Sao chép liên kết QR"
+        marker.background = GradientDrawable().apply { setColor(0); setStroke(2, 0xff00a687.toInt()) }
+        marker.setOnClickListener {
+            if (available()) {
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("QR", hit.url))
+                Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val params = WindowManager.LayoutParams(area.width(), area.height(), WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            x = area.left
+            y = area.top
+        }
+        windows.addView(marker, params)
+        marks.add(marker)
+    }
+
+    private fun clearMarks() {
+        marks.forEach { windows.removeViewImmediate(it) }
+        marks.clear()
+    }
+    override fun onInterrupt() { revision++; handler.removeCallbacks(scan); clearMarks() }
+    override fun onDestroy() {
+        active = false
+        onInterrupt()
+        worker.shutdown()
+        super.onDestroy()
+    }
+}
