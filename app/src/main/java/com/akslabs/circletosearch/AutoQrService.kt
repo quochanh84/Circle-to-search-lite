@@ -146,7 +146,7 @@ class AutoQrService : AccessibilityService() {
     private fun show(hit: Hit) {
         val area = hit.area
         val marker = FrameLayout(this)
-        marker.contentDescription = "Sao chép liên kết QR"
+        marker.contentDescription = "Sao chép và mở liên kết QR"
         marker.setOnClickListener {
             if (available()) {
                 val clip = ClipData.newPlainText("QR", hit.url).apply {
@@ -156,6 +156,14 @@ class AutoQrService : AccessibilityService() {
                 }
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                 showCopied()
+                val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(hit.url))
+                    .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                try {
+                    startActivity(open)
+                } catch (_: android.content.ActivityNotFoundException) {
+                    android.widget.Toast.makeText(this, "Đã sao chép. Không có ứng dụng mở link.", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
         marker.setOnTouchListener { view, event ->
