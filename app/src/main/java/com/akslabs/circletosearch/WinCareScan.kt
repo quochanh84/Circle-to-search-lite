@@ -15,6 +15,8 @@ internal class WinCareScan(private val service: AccessibilityService) {
     private var link: String? = null
     private var deadline = 0L
     private var awaitingWinCare = false
+    private var launchAt = 0L
+    private var launchRequested = false
     private val tick = Runnable { advance() }
 
     fun start(url: String) {
@@ -24,20 +26,20 @@ internal class WinCareScan(private val service: AccessibilityService) {
         deadline = SystemClock.uptimeMillis() + 10000
         val owner = service.rootInActiveWindow?.packageName?.toString()
         awaitingWinCare = owner != "com.vcm.wc"
-        if (awaitingWinCare && owner != null && owner != service.packageName && owner != "com.android.systemui") {
-            val intent = service.packageManager.getLaunchIntentForPackage("com.vcm.wc")
-            if (intent == null) { fail(); return }
-            try {
-                service.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (_: android.content.ActivityNotFoundException) { fail(); return }
-              catch (_: SecurityException) { fail(); return }
-        }
+        launchRequested = false
+        val transientOwner = owner == null || owner == service.packageName || owner == "com.android.systemui"
+        launchAt = SystemClock.uptimeMillis() + if (transientOwner) 270L else 0L
         advance()
     }
 
     fun stop() {
         handler.removeCallbacks(tick)
         link = null
+    }
+
+    private fun launchFailed() {
+        stop()
+        Toast.makeText(service, "Không mở được ứng dụng Bán hàng (WinCare).", Toast.LENGTH_SHORT).show()
     }
 
     private fun fail() {
@@ -92,6 +94,19 @@ internal class WinCareScan(private val service: AccessibilityService) {
                         return
                     }
                 }
+            }
+        } else if (awaitingWinCare && !launchRequested && SystemClock.uptimeMillis() >= launchAt) {
+            launchRequested = true
+            val intent = service.packageManager.getLaunchIntentForPackage("com.vcm.wc")
+            try {
+                if (intent == null) throw android.content.ActivityNotFoundException()
+                service.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: android.content.ActivityNotFoundException) {
+                launchFailed()
+                return
+            } catch (_: SecurityException) {
+                launchFailed()
+                return
             }
         } else if (!awaitingWinCare && root != null && root.packageName?.toString() !in setOf("com.android.systemui", service.packageName)) {
             fail()
