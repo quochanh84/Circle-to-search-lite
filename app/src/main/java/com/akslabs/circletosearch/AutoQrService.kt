@@ -68,7 +68,7 @@ class AutoQrService : AccessibilityService() {
             handler.postDelayed(scan, max(0L, lastShot + 525 - SystemClock.uptimeMillis()))
     }
 
-    private fun available() = active && getSystemService(PowerManager::class.java).isInteractive &&
+    private fun available() = destination == null && active && getSystemService(PowerManager::class.java).isInteractive &&
         !getSystemService(KeyguardManager::class.java).isDeviceLocked
 
     private fun capture() {
@@ -145,6 +145,40 @@ class AutoQrService : AccessibilityService() {
 
     private val winCare by lazy { WinCareScan(this) }
 
+    private var destination: android.app.AlertDialog? = null
+
+    private fun chooseDestination(url: String) {
+        revision++
+        clearMarks()
+        val dialog = android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Light_Dialog_Alert)
+            .setItems(arrayOf("One retailer", "Bán hàng")) { d, item ->
+                d.dismiss()
+                handler.post {
+                    if (available()) {
+                        if (item == 0) openRetailer(url) else winCare.start(url)
+                    }
+                }
+            }.create()
+        destination = dialog
+        dialog.setOnDismissListener { destination = null; schedule() }
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        dialog.show()
+    }
+
+    private fun openRetailer(url: String) {
+        val pkg = "com.masangroup.r1"
+        val view = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .setPackage(pkg).addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+        val intent = if (view.resolveActivity(packageManager) != null) view
+            else packageManager.getLaunchIntentForPackage(pkg)
+        try {
+            if (intent == null) throw android.content.ActivityNotFoundException()
+            startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: android.content.ActivityNotFoundException) {
+            android.widget.Toast.makeText(this, "Không mở được One retailer", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun show(hit: Hit) {
         val area = hit.area
         val marker = FrameLayout(this)
@@ -162,7 +196,7 @@ class AutoQrService : AccessibilityService() {
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                 showCopied()
                 if (storeScan) {
-                    winCare.start(hit.url)
+                    chooseDestination(hit.url)
                     return@setOnClickListener
                 }
                 val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(hit.url))
@@ -241,7 +275,7 @@ class AutoQrService : AccessibilityService() {
         marks.values.forEach { windows.removeViewImmediate(it) }
         marks.clear()
     }
-    override fun onInterrupt() { winCare.stop(); revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
+    override fun onInterrupt() { destination?.setOnDismissListener(null); destination?.dismiss(); destination = null; winCare.stop(); revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
     override fun onDestroy() {
         active = false
         handler.removeCallbacks(dismissFeedback)

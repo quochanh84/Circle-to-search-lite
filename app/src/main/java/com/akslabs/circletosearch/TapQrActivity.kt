@@ -11,7 +11,7 @@ class TapQrActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         AlertDialog.Builder(this).setTitle("TapQR")
-            .setMessage("Khi bật Trợ năng, TapQR chụp và xử lý màn hình các ứng dụng ngay trên thiết bị để tìm mã QR. Ảnh màn hình không được lưu hoặc gửi đi. Khi bạn chạm mã, liên kết được chép vào bộ nhớ tạm rồi mở bằng ứng dụng xử lý liên kết. Trong WinCare, khi bạn chạm QR cửa hàng, TapQR đọc giao diện, điền mã và tự nhấn Xác nhận một lần. Bạn có thể tắt TapQR trong Trợ năng bất cứ lúc nào.")
+            .setMessage("Khi bật Trợ năng, TapQR chụp và xử lý màn hình các ứng dụng ngay trên thiết bị để tìm mã QR. Ảnh màn hình không được lưu hoặc gửi đi. Khi bạn chạm mã, liên kết được chép vào bộ nhớ tạm rồi mở bằng ứng dụng xử lý liên kết. Với QR cửa hàng, bạn chọn One retailer hoặc Bán hàng. Khi chọn Bán hàng, TapQR đọc giao diện, điền mã và tự nhấn Xác nhận một lần. Bạn có thể tắt TapQR trong Trợ năng bất cứ lúc nào.")
             .setPositiveButton("Đồng ý và mở Trợ năng") { _, _ -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); finish() }
             .setNeutralButton("Thông tin ứng dụng") { _, _ -> startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + packageName))); finish() }
             .setNegativeButton("Đóng") { _, _ -> finish() }
