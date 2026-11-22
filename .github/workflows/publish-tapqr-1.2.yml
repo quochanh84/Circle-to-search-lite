@@ -1,0 +1,20 @@
+name: Publish TapQR 1.2 download
+on:
+  push:
+    paths: ['.github/workflows/publish-tapqr-1.2.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish verified APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$GH_REPO/actions/artifacts/14730673513/zip" > build.zip
+          echo '56be9947d64f124a38d9c633c7a1d84f1b52129172755773de4498f524851b8b  build.zip' | sha256sum -c -
+          unzip -p build.zip TapQR.apk > TapQR-1.2-debug.apk
+          gh release create v1.2-debug TapQR-1.2-debug.apk --target 13b27abbd198798429a474a9feffc5301487e74b --title 'TapQR 1.2' --notes 'Android debug APK. Tap a QR code to copy and open the link.'
