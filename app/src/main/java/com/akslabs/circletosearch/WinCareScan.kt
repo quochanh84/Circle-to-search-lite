@@ -14,6 +14,7 @@ internal class WinCareScan(private val service: AccessibilityService) {
     private var step = Step.START
     private var link: String? = null
     private var deadline = 0L
+    private var awaitingWinCare = false
     private val tick = Runnable { advance() }
 
     fun start(url: String) {
@@ -21,6 +22,16 @@ internal class WinCareScan(private val service: AccessibilityService) {
         link = url
         step = Step.START
         deadline = SystemClock.uptimeMillis() + 10000
+        val owner = service.rootInActiveWindow?.packageName?.toString()
+        awaitingWinCare = owner != "com.vcm.wc"
+        if (awaitingWinCare && owner != null && owner != service.packageName && owner != "com.android.systemui") {
+            val intent = service.packageManager.getLaunchIntentForPackage("com.vcm.wc")
+            if (intent == null) { fail(); return }
+            try {
+                service.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: android.content.ActivityNotFoundException) { fail(); return }
+              catch (_: SecurityException) { fail(); return }
+        }
         advance()
     }
 
@@ -51,6 +62,7 @@ internal class WinCareScan(private val service: AccessibilityService) {
         if (SystemClock.uptimeMillis() >= deadline) { fail(); return }
         val root = service.rootInActiveWindow
         if (root != null && root.packageName?.toString() == "com.vcm.wc") {
+            awaitingWinCare = false
             val title = root.id("txt_title")?.text?.toString().orEmpty()
             val plan = root.id("edtSite") != null && root.id("imgvQr") != null
             val scanner = root.id("lnlInput")
@@ -81,7 +93,7 @@ internal class WinCareScan(private val service: AccessibilityService) {
                     }
                 }
             }
-        } else if (root != null && root.packageName?.toString() !in setOf("com.android.systemui", service.packageName)) {
+        } else if (!awaitingWinCare && root != null && root.packageName?.toString() !in setOf("com.android.systemui", service.packageName)) {
             fail()
             return
         }

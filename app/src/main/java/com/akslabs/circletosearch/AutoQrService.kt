@@ -152,7 +152,7 @@ class AutoQrService : AccessibilityService() {
         marker.setOnClickListener {
             if (available()) {
                 val uri = android.net.Uri.parse(hit.url)
-                val storeScan = foreground == "com.vcm.wc" && uri.host.equals("r1.masandistribution.vn", true) &&
+                val storeScan = uri.host.equals("r1.masandistribution.vn", true) &&
                     !uri.getQueryParameter("outlet").isNullOrBlank()
                 val clip = ClipData.newPlainText("QR", hit.url).apply {
                     description.extras = PersistableBundle().apply {
