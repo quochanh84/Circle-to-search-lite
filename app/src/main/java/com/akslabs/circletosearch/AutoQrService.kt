@@ -145,24 +145,74 @@ class AutoQrService : AccessibilityService() {
 
     private val winCare by lazy { WinCareScan(this) }
 
-    private var destination: android.app.AlertDialog? = null
+    private var destination: FrameLayout? = null
 
-    private fun chooseDestination(url: String) {
+    private fun closeDestination() {
+        val panel = destination ?: return
+        destination = null
+        windows.removeViewImmediate(panel)
+        schedule()
+    }
+
+    private fun chooseDestination(hit: Hit) {
         revision++
         clearMarks()
-        val dialog = android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Light_Dialog_Alert)
-            .setItems(arrayOf("One retailer", "Bán hàng")) { d, item ->
-                d.dismiss()
-                handler.post {
-                    if (available()) {
-                        if (item == 0) openRetailer(url) else winCare.start(url)
+        val panel = FrameLayout(this)
+        destination = panel
+        panel.setOnClickListener { closeDestination() }
+        panel.isFocusableInTouchMode = true
+        panel.setOnKeyListener { _, key, event ->
+            if (key != KeyEvent.KEYCODE_BACK) false else {
+                if (event.action == KeyEvent.ACTION_UP) closeDestination()
+                true
+            }
+        }
+        fun dp(n: Int) = (resources.displayMetrics.density * n).roundToInt()
+        val buttons = listOf("One retailer", "Bán hàng").mapIndexed { index, title ->
+            android.widget.Button(this).apply {
+                text = title
+                isAllCaps = false
+                setPadding(0, 0, 0, 0)
+                setTextColor(-1)
+                background = GradientDrawable().apply {
+                    setColor(if (index == 0) 0xff005c68.toInt() else 0xff174688.toInt())
+                    cornerRadius = dp(9).toFloat()
+                }
+                setOnClickListener {
+                    if (destination === panel) {
+                        closeDestination()
+                        if (index == 0) openRetailer(hit.url) else winCare.start(hit.url)
                     }
                 }
-            }.create()
-        destination = dialog
-        dialog.setOnDismissListener { destination = null; schedule() }
-        dialog.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-        dialog.show()
+                panel.addView(this, FrameLayout.LayoutParams(dp(108), dp(44)))
+            }
+        }
+        panel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            val origin = IntArray(2)
+            panel.getLocationOnScreen(origin)
+            val right = hit.area.right - origin[0] + dp(4)
+            val width = (panel.width - right).coerceIn(dp(82), dp(108))
+            val x = right.coerceIn(0, maxOf(0, panel.width - width))
+            val gap = dp(5)
+            val height = dp(44)
+            val top = (hit.area.centerY() - origin[1] - height - gap / 2)
+                .coerceIn(0, maxOf(0, panel.height - 2 * height - gap))
+            buttons.forEachIndexed { index, button ->
+                if (button.layoutParams.width != width) {
+                    button.layoutParams = button.layoutParams.apply { this.width = width }
+                }
+                button.x = x.toFloat()
+                button.y = (top + index * (height + gap)).toFloat()
+            }
+        }
+        val params = WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            setFitInsetsTypes(0)
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        windows.addView(panel, params)
+        panel.requestFocus()
     }
 
     private fun openRetailer(url: String) {
@@ -196,7 +246,7 @@ class AutoQrService : AccessibilityService() {
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                 showCopied()
                 if (storeScan) {
-                    chooseDestination(hit.url)
+                    chooseDestination(hit)
                     return@setOnClickListener
                 }
                 val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(hit.url))
@@ -275,7 +325,7 @@ class AutoQrService : AccessibilityService() {
         marks.values.forEach { windows.removeViewImmediate(it) }
         marks.clear()
     }
-    override fun onInterrupt() { destination?.setOnDismissListener(null); destination?.dismiss(); destination = null; winCare.stop(); revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
+    override fun onInterrupt() { closeDestination(); winCare.stop(); revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
     override fun onDestroy() {
         active = false
         handler.removeCallbacks(dismissFeedback)
