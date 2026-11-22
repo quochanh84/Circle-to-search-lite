@@ -143,12 +143,17 @@ class AutoQrService : AccessibilityService() {
         }
     }
 
+    private val winCare by lazy { WinCareScan(this) }
+
     private fun show(hit: Hit) {
         val area = hit.area
         val marker = FrameLayout(this)
         marker.contentDescription = "Sao chép và mở liên kết QR"
         marker.setOnClickListener {
             if (available()) {
+                val uri = android.net.Uri.parse(hit.url)
+                val storeScan = foreground == "com.vcm.wc" && uri.host.equals("r1.masandistribution.vn", true) &&
+                    !uri.getQueryParameter("outlet").isNullOrBlank()
                 val clip = ClipData.newPlainText("QR", hit.url).apply {
                     description.extras = PersistableBundle().apply {
                         putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
@@ -156,6 +161,10 @@ class AutoQrService : AccessibilityService() {
                 }
                 getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
                 showCopied()
+                if (storeScan) {
+                    winCare.start(hit.url)
+                    return@setOnClickListener
+                }
                 val open = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(hit.url))
                     .addCategory(android.content.Intent.CATEGORY_BROWSABLE)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -232,7 +241,7 @@ class AutoQrService : AccessibilityService() {
         marks.values.forEach { windows.removeViewImmediate(it) }
         marks.clear()
     }
-    override fun onInterrupt() { revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
+    override fun onInterrupt() { winCare.stop(); revision++; handler.removeCallbacks(scan); handler.removeCallbacks(idleScan); clearMarks() }
     override fun onDestroy() {
         active = false
         handler.removeCallbacks(dismissFeedback)
