@@ -155,6 +155,7 @@ class AutoQrService : AccessibilityService() {
     }
 
     private fun chooseDestination(hit: Hit) {
+        val qrWindow = rootInActiveWindow?.takeIf { it.packageName?.toString() == "com.vcm.wc" }?.windowId
         revision++
         clearMarks()
         val panel = FrameLayout(this)
@@ -181,7 +182,7 @@ class AutoQrService : AccessibilityService() {
                 setOnClickListener {
                     if (destination === panel) {
                         closeDestination()
-                        if (index == 0) openRetailer(hit.url) else winCare.start(hit.url)
+                        if (index == 0) openRetailer(hit.url) else winCare.start(hit.url, qrWindow)
                     }
                 }
                 panel.addView(this, FrameLayout.LayoutParams(dp(108), dp(44)))

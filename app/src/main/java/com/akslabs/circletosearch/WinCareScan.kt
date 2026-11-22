@@ -15,12 +15,16 @@ internal class WinCareScan(private val service: AccessibilityService) {
     private var link: String? = null
     private var deadline = 0L
     private var awaitingWinCare = false
+    private var sourceWindow: Int? = null
+    private var sourceFallbackAt = 0L
     private var launchAt = 0L
     private var launchRequested = false
     private val tick = Runnable { advance() }
 
-    fun start(url: String) {
+    fun start(url: String, qrWindow: Int?) {
         if (link != null) return
+        sourceWindow = qrWindow
+        sourceFallbackAt = SystemClock.uptimeMillis() + 450L
         link = url
         step = Step.START
         deadline = SystemClock.uptimeMillis() + 10000
@@ -44,7 +48,14 @@ internal class WinCareScan(private val service: AccessibilityService) {
 
     private fun fail() {
         stop()
-        Toast.makeText(service, "Đã sao chép. Chưa xác nhận được mã trong WinCare.", Toast.LENGTH_SHORT).show()
+        val message = when (step) {
+            Step.START -> "WinCare: chưa nhận diện được màn hình."
+            Step.PLAN -> "WinCare: chưa tìm thấy nút QR trong kế hoạch."
+            Step.SCAN -> "WinCare: chưa tìm thấy nút nhập mã."
+            Step.ENTRY -> "WinCare: chưa điền được mã."
+            Step.VERIFY -> "WinCare: chưa xác nhận được mã."
+        }
+        Toast.makeText(service, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun AccessibilityNodeInfo.id(name: String) =
@@ -66,7 +77,7 @@ internal class WinCareScan(private val service: AccessibilityService) {
         if (root != null && root.packageName?.toString() == "com.vcm.wc") {
             awaitingWinCare = false
             val title = root.id("txt_title")?.text?.toString().orEmpty()
-            val plan = root.id("edtSite") != null && root.id("imgvQr") != null
+            val plan = root.id("imgvQr") != null
             val scanner = root.id("lnlInput")
             val field = root.id("edtQr")
             when (step) {
@@ -74,6 +85,7 @@ internal class WinCareScan(private val service: AccessibilityService) {
                     field != null -> step = Step.ENTRY
                     scanner != null -> step = Step.SCAN
                     plan -> step = Step.PLAN
+                    (sourceWindow != null && root.windowId == sourceWindow && SystemClock.uptimeMillis() >= sourceFallbackAt) ||
                     title.contains("Bí kíp viếng thăm", true) ||
                         root.findAccessibilityNodeInfosByText("BÍ KÍP VIẾNG THĂM").any {
                             it.isVisibleToUser && it.text?.toString()?.trim().equals("BÍ KÍP VIẾNG THĂM", true)
